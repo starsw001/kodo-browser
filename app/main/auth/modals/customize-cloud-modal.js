@@ -1,6 +1,6 @@
 angular.module('web')
-  .controller('customizeCloudModalCtrl', ['$scope', '$translate', '$uibModalInstance', 'Config', 'KodoClient',
-    function ($scope, $translate, $modalInstance, Config, KodoClient) {
+  .controller('customizeCloudModalCtrl', ['$scope', '$translate', '$uibModalInstance', 'Config', 'QiniuClient',
+    function ($scope, $translate, $modalInstance, Config, QiniuClient) {
       const T = $translate.instant;
 
       let config = { ucUrl: '', regions: [{}] };
@@ -11,6 +11,11 @@ angular.module('web')
           // do nothing;
         }
       }
+      config.regions.forEach((region) => {
+        if (region.s3Urls && region.s3Urls.length > 0) {
+          region.endpoint = region.s3Urls[0];
+        }
+      });
 
       angular.extend($scope, {
         editRegions: editRegions,
@@ -37,7 +42,7 @@ angular.module('web')
           return;
         }
         const ucUrl = $scope.ucUrl;
-        KodoClient.isQueryRegionAPIAvaiable($scope.ucUrl).then((result) => {
+        QiniuClient.isQueryRegionAPIAvaiable($scope.ucUrl).then((result) => {
           if (ucUrl === $scope.ucUrl) {
             $scope.queryAvailable = result;
             normalizeRegions();
@@ -77,6 +82,11 @@ angular.module('web')
         let regions = null;
         if (editRegions()) {
           regions = angular.copy($scope.regions);
+          regions.forEach((region) => {
+            if (region.endpoint) {
+              region.s3Urls = [region.endpoint];
+            }
+          });
         }
         Config.save(ucUrl, regions);
         cancel();

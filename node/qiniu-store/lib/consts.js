@@ -1,7 +1,7 @@
 'use strict';
 
-const MIN_MULTIPART_SIZE = 4 << 20; // 4MB
-const MAX_PUTOBJECT_SIZE = 5 << 30; // 5GB
+const MIN_MULTIPART_SIZE = 4 << 20; // 4 MB
+const MAX_PUTOBJECT_SIZE = (1 << 30) * 5; // 5 GB
 const MAX_MULTIPART_COUNT = 10000;
 
 exports.MIN_MULTIPART_SIZE = MIN_MULTIPART_SIZE;

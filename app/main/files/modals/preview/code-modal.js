@@ -1,6 +1,7 @@
 angular.module('web')
-  .controller('codeModalCtrl', ['$scope', '$uibModalInstance','$translate','$timeout', '$uibModal', 'bucketInfo', 'objectInfo', 'fileType', 'showFn', 'reload', 'Toast', 'DiffModal', 's3Client', 'downloadUrl',
-    function ($scope, $modalInstance,$translate, $timeout, $modal, bucketInfo, objectInfo, fileType, showFn, reload, Toast, DiffModal, s3Client, downloadUrl) {
+  .controller('codeModalCtrl', ['$scope', '$uibModalInstance','$translate','$timeout', '$uibModal', 'bucketInfo', 'objectInfo', 'selectedDomain',
+             'fileType', 'showFn', 'reload', 'Toast', 'DiffModal', 'QiniuClient',
+    function ($scope, $modalInstance,$translate, $timeout, $modal, bucketInfo, objectInfo, selectedDomain, fileType, showFn, reload, Toast, DiffModal, QiniuClient) {
       const T = $translate.instant,
             urllib = require('urllib');
       angular.extend($scope, {
@@ -8,7 +9,6 @@ angular.module('web')
         objectInfo: objectInfo,
         fileType: fileType,
         afterCheckSuccess: afterCheckSuccess,
-        afterRestoreSubmit: afterRestoreSubmit,
 
         previewBarVisible: false,
         showFn: showFn,
@@ -28,10 +28,6 @@ angular.module('web')
         }
       }
 
-      function afterRestoreSubmit() {
-        showFn.callback(true);
-      }
-
       function saveContent() {
         var originalContent = $scope.originalContent;
         var v = editor.getValue();
@@ -41,7 +37,7 @@ angular.module('web')
           DiffModal.show('Diff', originalContent, v, function (v) {
             Toast.info(T('saving')); //'正在保存...'
 
-            s3Client.saveContent(bucketInfo.region, bucketInfo.bucket, objectInfo.path, v).then(function (result) {
+            QiniuClient.saveContent(bucketInfo.regionId, bucketInfo.bucketName, objectInfo.path, v).then(function (result) {
               Toast.success(T('save.successfully'));//'保存成功'
               cancel();
               reload();
@@ -54,17 +50,12 @@ angular.module('web')
 
       function getContent() {
         $scope.isLoading = true;
-        urllib.request(downloadUrl, { method: 'GET' }, (err, body) => {
-          $scope.isLoading = false;
-          if (err) {
-            Toast.error(err);
-            return;
-          }
-
-          const data = body.toString();
+        QiniuClient.getContent(bucketInfo.regionId, bucketInfo.bucketName, objectInfo.path, selectedDomain.domain.toQiniuDomain()).then((data) => {
           $scope.originalContent = data;
           $scope.content = data;
           editor.setValue(data);
+        }).finally(() => {
+          $scope.isLoading = false;
         });
       }
 

@@ -1,6 +1,6 @@
 <header class="pd4 file-toolbar" style="min-width: 1280px;">
   <div class="col-sm-7 pd0" style="min-width: 700px;">
-    <div class="btn-group" role="group" ng-disabled="!currentBucketPerm || !currentBucketPerm.write">
+    <div class="btn-group" role="group">
       <span class="btn btn-info btn-sm" ng-if="total_folders>0">
         <i class="fa fa-folder" style="color:orange"></i> {{total_folders}}
       </span>
@@ -13,36 +13,36 @@
     &nbsp;
 
     <div class="btn-group" role="group" ng-if="!copy.pwd">
-      <button type="button" class="btn btn-default btn-sm" ng-click="showUploadDialog()" ng-disabled="!currentBucketPerm || !currentBucketPerm.write">
+      <button type="button" class="btn btn-default btn-sm" ng-click="showUploadDialog()">
         <i class="glyphicon glyphicon-cloud-upload text-info"></i>
         {{'upload'|translate}}
       </button>
-      <button type="button" class="btn btn-default btn-sm" ng-click="showDownloadDialog()" ng-disabled="sel.has.length==0 || !currentBucketPerm || !currentBucketPerm.read">
+      <button type="button" class="btn btn-default btn-sm" ng-click="showDownloadDialog()" ng-disabled="sel.has.length==0">
         <i class="glyphicon glyphicon-cloud-download text-primary"></i>
         {{'download'|translate}}
       </button>
 
-      <button type="button" class="btn btn-default btn-sm" ng-click="showMove(sel.has, true)" ng-disabled="sel.has.length==0 || !currentBucketPerm || !currentBucketPerm.copy">
+      <button type="button" class="btn btn-default btn-sm" ng-click="showMove(sel.has, true)" ng-disabled="sel.has.length==0">
         <i class="fa fa-clone text-primary"></i>
         {{'copy'|translate}}
       </button>
 
-      <button type="button" class="btn btn-default btn-sm" ng-click="showMove(sel.has)" ng-disabled="sel.has.length==0 || !currentBucketPerm || !currentBucketPerm.move">
+      <button type="button" class="btn btn-default btn-sm" ng-click="showMove(sel.has)" ng-disabled="sel.has.length==0">
         <i class="fa fa-clone text-primary"></i>
         {{'move'|translate}}
       </button>
 
-      <button type="button" class="btn btn-default btn-sm" ng-click="showRename(sel.has[0])" ng-disabled="sel.has.length!=1 || !currentBucketPerm || !currentBucketPerm.rename">
+      <button type="button" class="btn btn-default btn-sm" ng-click="showRename(sel.has[0])" ng-disabled="sel.has.length!=1">
         <i class="fa fa-clone text-primary"></i>
         {{'rename'|translate}}
       </button>
 
-      <button type="button" class="btn btn-default btn-sm" ng-click="showDeleteFilesSelected()" ng-disabled="sel.has.length==0 || !currentBucketPerm || !currentBucketPerm.remove">
+      <button type="button" class="btn btn-default btn-sm" ng-click="showDeleteFilesSelected()" ng-disabled="sel.has.length==0">
         <i class="fa fa-clone text-primary"></i>
         {{'delete'|translate}}
       </button>
 
-      <button type="button" class="btn btn-default btn-sm" ng-click="showDownloadLinkOfFilesSelected()" ng-disabled="sel.has.length==0 || !currentBucketPerm || !currentBucketPerm.read">
+      <button type="button" class="btn btn-default btn-sm" ng-click="showDownloadLinkOfFilesSelected()" ng-disabled="sel.has.length==0">
         <i class="fa fa-link text-primary"></i>
         {{'exportDownloadLinks'|translate}}
       </button>
@@ -53,7 +53,8 @@
     <div class="btn-group" role="toolbar" ng-if="keepMoveOptions">
       <button class="btn btn-default btn-sm" type="button"
               uib-tooltip="{{'paste.resources'|translate}}" tooltip-placement="bottom" tooltip-append-to-body="true"
-              ng-click="showPaste()" ng-disabled="keepMoveOptions.currentInfo.region !== currentInfo.region">
+              ng-click="showPaste()"
+              ng-disabled="keepMoveOptions.currentInfo.regionId !== currentInfo.regionId || keepMoveOptions.currentInfo.qiniuBackendMode !== currentInfo.qiniuBackendMode">
         <i class="fa fa-paste"></i>
         <span class="text-primary">{{'paste'|translate}}({{keepMoveOptions.items.length}})</span>
       </button>

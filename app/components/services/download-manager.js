@@ -1,8 +1,8 @@
-angular.module("web").factory("s3DownloadMgr", [
+angular.module("web").factory("DownloadMgr", [
   "$q",
   "$timeout",
   "AuthInfo",
-  "s3Client",
+  "QiniuClient",
   "Config",
   "Toast",
   "settingsSvs",
@@ -10,7 +10,7 @@ angular.module("web").factory("s3DownloadMgr", [
     $q,
     $timeout,
     AuthInfo,
-    s3Client,
+    QiniuClient,
     Config,
     Toast,
     settingsSvs
@@ -22,7 +22,7 @@ angular.module("web").factory("s3DownloadMgr", [
           path = require("path"),
           os = require("os"),
           sanitize = require("sanitize-filename"),
-          S3Store = require("./node/s3store");
+          QiniuStore = require("./node/qiniu-store");
 
     var $scope;
     var concurrency = 0;
@@ -43,14 +43,12 @@ angular.module("web").factory("s3DownloadMgr", [
       $scope = scope;
       $scope.lists.downloadJobList = [];
 
-      const progs = tryLoadProg();
-      angular.forEach(progs, (prog) => {
-        createJob(prog).then((job) => {
-          if (job.status == "waiting" || job.status == "running") {
-            job.stop();
-          }
-          addEvents(job);
-        });
+      angular.forEach(tryLoadProg(), (prog) => {
+        const job = createJob(prog);
+        if (job.status === "waiting" || job.status === "running") {
+          job.stop();
+        }
+        addEvents(job);
       });
     }
 
@@ -61,58 +59,45 @@ angular.module("web").factory("s3DownloadMgr", [
      * @return job  { start(), stop(), status, progress }
      */
     function createJob(options) {
-      const df = $q.defer(),
-            auth = AuthInfo.get(),
-            bucket = options.from.bucket,
+      const bucket = options.from.bucket,
             key = options.from.key,
-            region = options.region || auth.region;
+            region = options.region,
+            domain = options.domain;
 
-      s3Client.getClient({ bucket: bucket, region: region }).then((client) => {
-        console.info(
-          "GET",
-          "::",
-          region,
-          "::",
-          bucket + "/" + key,
-          "==>",
-          options.to.path + "/" + options.to.name
-        );
-        options.region = region;
-        options.resumeDownload = (settingsSvs.resumeDownload.get() == 1);
-        options.multipartDownloadThreshold = settingsSvs.multipartDownloadThreshold.get();
-        options.multipartDownloadSize = settingsSvs.multipartDownloadSize.get();
-        options.downloadSpeedLimit = (settingsSvs.downloadSpeedLimitEnabled.get() == 1 && settingsSvs.downloadSpeedLimitKBperSec.get());
-        options.useElectronNode = (settingsSvs.useElectronNode.get() == 1);
-        options.isDebug = (settingsSvs.isDebug.get() == 1);
-        if (!options.url) {
-          options.url = client.getSignedUrl("getObject", { Bucket: bucket, Key: key, Expires: 24 * 60 * 60 * 7 });
-        }
+      console.info(
+        "GET",
+        "::",
+        region,
+        "::",
+        bucket + "/" + key,
+        "==>",
+        options.to.path + "/" + options.to.name
+      );
 
-        const agentOptions = { keepAlive: true, keepAliveMsecs: 30000 };
-        const store = new S3Store({
-          credential: {
-            accessKeyId: auth.id,
-            secretAccessKey: auth.secret
-          },
-          endpoint: client.config.endpoint,
-          region: region,
-          httpOptions: {
-            connectTimeout: 3000, // 3s
-            timeout: 300000, // 5m
-            agent: client.config.endpoint.startsWith('https://') ? new https.Agent(agentOptions) : new http.Agent(agentOptions)
-          }
-        });
-        df.resolve(store.createDownloadJob(options));
-      }, (err) => {
-        df.reject(err);
-      });
+      const config = Config.load();
 
-      return df.promise;
+      options.clientOptions = {
+        accessKey: AuthInfo.get().id,
+        secretKey: AuthInfo.get().secret,
+        ucUrl: config.ucUrl,
+        regions: config.regions || [],
+      };
+      options.region = region;
+      options.domain = domain;
+      options.resumeDownload = (settingsSvs.resumeDownload.get() == 1);
+      options.multipartDownloadThreshold = settingsSvs.multipartDownloadThreshold.get();
+      options.multipartDownloadSize = settingsSvs.multipartDownloadSize.get();
+      options.downloadSpeedLimit = (settingsSvs.downloadSpeedLimitEnabled.get() == 1 && settingsSvs.downloadSpeedLimitKBperSec.get());
+      options.useElectronNode = (settingsSvs.useElectronNode.get() == 1);
+      options.isDebug = (settingsSvs.isDebug.get() == 1);
+
+      const store = new QiniuStore();
+      return store.createDownloadJob(options);
     }
 
     /**
      * 下载
-     * @param bucketInfos {array}  item={region, bucket, path, name, size=0, isFolder=false}  有可能是目录，需要遍历
+     * @param bucketInfos {array}  item={region, bucket, path, name, size=0, itemType='file'}  有可能是目录，需要遍历
      * @param toLocalPath {string}
      * @param jobsAddedFn {Function} 加入列表完成回调方法， jobs列表已经稳定
      */
@@ -164,42 +149,41 @@ angular.module("web").factory("s3DownloadMgr", [
         }
       }
 
-      function dig(s3info, t, callFn, callFn2) {
+      function dig(qiniuInfo, t, callFn, callFn2) {
         if (stopCreatingFlag) {
           return;
         }
 
-        var fileName = sanitize(path.basename(s3info.path)),
+        var fileName = sanitize(path.basename(qiniuInfo.path)),
           filePath = "";
         if (path.sep == "\\") {
-          angular.forEach(path.relative(dirPath.replace(/\\/g, "/"), s3info.path).replace(/\\/g, "/").split("/"), (folder) => {
+          angular.forEach(path.relative(dirPath.replace(/\\/g, "/"), qiniuInfo.path).replace(/\\/g, "/").split("/"), (folder) => {
             filePath = path.join(filePath, sanitize(folder));
           });
         } else {
-          angular.forEach(path.relative(dirPath, s3info.path).split("/"), (folder) => {
+          angular.forEach(path.relative(dirPath, qiniuInfo.path).split("/"), (folder) => {
             filePath = path.join(filePath, sanitize(folder));
           });
         }
 
-        if (s3info.isFolder) {
-          // list all files under s3info.path
+        if (qiniuInfo.itemType === 'folder') {
+          // list all files under qiniuInfo.path
           function tryLoadFiles(marker) {
-            s3Client
-              .listFiles(s3info.region, s3info.bucket, s3info.path, marker)
+            QiniuClient
+              .listFiles(qiniuInfo.region, qiniuInfo.bucket, qiniuInfo.path, marker)
               .then((result) => {
                 var files = result.data;
                 files.forEach((f) => {
-                  f.region = s3info.region;
-                  f.bucket = s3info.bucket;
-                  f.domain = s3info.domain;
+                  f.region = qiniuInfo.region;
+                  f.bucket = qiniuInfo.bucket;
+                  f.domain = qiniuInfo.domain;
+                  f.qiniuBackendMode = qiniuInfo.qiniuBackendMode;
                 });
 
                 loop(files, (jobs) => {
                   t = t.concat(jobs);
                   if (result.marker) {
-                    $timeout(() => {
-                      tryLoadFiles(result.marker);
-                    }, 10);
+                    $timeout(() => { tryLoadFiles(result.marker); }, 10);
                   } else {
                     if (callFn) callFn();
                   }
@@ -257,26 +241,24 @@ angular.module("web").factory("s3DownloadMgr", [
               }
             }
 
-            s3info.domain.signatureUrl(s3info.path).then((url) => {
-              createJob({
-                region: s3info.region,
-                from: {
-                  bucket: s3info.bucket,
-                  key: s3info.path,
-                  url: url
-                },
-                to: {
-                  name: fileName,
-                  path: fileLocalPathWithSuffixWithoutExt + ext
-                }
-              }).then((job) => {
-                addEvents(job);
-                t.push(job);
-
-                if (callFn) callFn();
-                if (callFn2) callFn2();
-              });
+            const job = createJob({
+              region: qiniuInfo.region,
+              from: {
+                bucket: qiniuInfo.bucket,
+                key: qiniuInfo.path,
+              },
+              to: {
+                name: fileName,
+                path: fileLocalPathWithSuffixWithoutExt + ext
+              },
+              domain: qiniuInfo.domain.toQiniuDomain(),
+              backendMode: qiniuInfo.domain.qiniuBackendMode(),
             });
+            addEvents(job);
+            t.push(job);
+
+            if (callFn) callFn();
+            if (callFn2) callFn2();
           });
         }
       }
@@ -390,8 +372,10 @@ angular.module("web").factory("s3DownloadMgr", [
             total: job.prog.total,
             resumable: job.prog.resumable
           },
+          backendMode: job.backendMode,
+          domain: job.domain,
           status: job.status,
-          message: job.message
+          message: job.message,
         };
       });
 

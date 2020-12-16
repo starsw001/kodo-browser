@@ -80,7 +80,7 @@ module.exports = {
 
   "storageClassesType": "Storage Type",
   "storageClassesType.standard": "Standard",
-  "storageClassesType.line": "IA",
+  "storageClassesType.infrequentaccess": "IA",
   "storageClassesType.glacier": "Archive",
 
   "aclType.default": "Inherit From Bucket",

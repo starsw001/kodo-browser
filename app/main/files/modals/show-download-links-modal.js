@@ -1,10 +1,9 @@
 angular.module('web')
-  .controller('showDownloadLinksModalCtrl', ['$scope', '$timeout', '$translate', '$uibModalInstance', 's3Client', 'items', 'current', 'domains', 'showDomains', 'Toast', 'Domains',
-    function ($scope, $timeout, $translate, $modalInstance, s3Client, items, current, domains, showDomains, Toast, Domains) {
+  .controller('showDownloadLinksModalCtrl', ['$scope', '$timeout', '$translate', '$uibModalInstance', 'safeApply', 'QiniuClient', 'items', 'current', 'domains', 'showDomains', 'Toast', 'Domains',
+    function($scope, $timeout, $translate, $modalInstance, safeApply, QiniuClient, items, current, domains, showDomains, Toast, Domains) {
       const T = $translate.instant,
             fs = require('fs'),
             path = require('path'),
-            each = require('array-each'),
             csvStringify = require('csv-stringify'),
             downloadsFolder = require("downloads-folder");
 
@@ -27,7 +26,7 @@ angular.module('web')
       function initCurrentDomain(domains) {
         let found = false;
         if (current.domain !== null) {
-          each(domains, (domain) => {
+          domains.forEach((domain) => {
             if (current.domain.name() === domain.name()) {
               current.domain = domain;
               found = true;
@@ -35,7 +34,7 @@ angular.module('web')
           });
         }
         if (!found) {
-          each(domains, (domain) => {
+          domains.forEach((domain) => {
             if (domain.default()) {
               current.domain = domain;
             }
@@ -72,14 +71,11 @@ angular.module('web')
         });
         csvStringifier.write(['BucketName', 'ObjectName', 'URL']);
         const promises = [];
-        loopItems(current.info.region, current.info.bucket, items,
+        loopItems(current.info.regionId, current.info.bucketName, items,
           (item) => {
-            promises.push(new Promise((resolve, reject) => {
-              $scope.current.domain.signatureUrl(item.path, lifetime).then((url) => {
-                csvStringifier.write([current.info.bucketName, item.path, url]);
-                resolve();
-              });
-            }));
+            promises.push($scope.current.domain.signatureUrl(item.path, lifetime).then((url) => {
+                            csvStringifier.write([current.info.bucketName, item.path, url.toString()]);
+                          }));
           }, () => {
             Promise.all(promises).then(() => { csvStringifier.end(); });
           });
@@ -87,13 +83,11 @@ angular.module('web')
 
       function refreshDomains() {
         const info = $scope.current.info;
-        Domains.list(info.region, info.bucket).
+        Domains.list(info.regionId, info.bucketName).
                 then((domains) => {
                   $scope.domains = domains;
                   initCurrentDomain(domains);
-                }, (err) => {
-                  console.error(err);
-                  Toast.error(err);
+                  safeApply($scope);
                 });
       }
 
@@ -102,8 +96,8 @@ angular.module('web')
         loopItemsInDirectory(items, eachCallback, doneCallback);
 
         function loopItemsInDirectory(items, eachCallback, doneCallback) {
-          each(items, (item) => {
-            if (item.isFolder) {
+          items.forEach((item) => {
+            if (item.itemType === 'folder') {
               waitForDirs += 1;
               loadFilesFromDirectory(
                 item,
@@ -126,7 +120,7 @@ angular.module('web')
         }
 
         function loadFilesFromDirectory(item, handleItems, doneCallback, marker) {
-          s3Client
+          QiniuClient
             .listFiles(region, bucket, item.path, marker)
             .then((result) => {
                 handleItems(result.data || []);
@@ -135,9 +129,6 @@ angular.module('web')
                 } else {
                   doneCallback();
                 }
-            }, (err) => {
-              console.error(err);
-              Toast.error(err);
             });
         }
       }

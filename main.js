@@ -13,11 +13,6 @@ const {
 const {
   fork
 } = require("child_process");
-const {
-  Client
-} = require("./node/s3store/lib/ioutil");
-
-app.commandLine.appendSwitch("ignore-connections-limit", "poc.com,s3qos.poc.com");
 
 ///*****************************************
 let root = path.dirname(__dirname);
@@ -254,14 +249,14 @@ ipcMain.on("asynchronous-job", (event, data) => {
   case "job-upload":
     var forkOptions = {
       cwd: root,
-      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      stdio: [0, 1, 2, 'ipc'],
       silent: true
     };
     if (data.params.useElectronNode != true) {
       forkOptions.execPath = execNode;
     }
 
-    var execScript = path.join(appRoot, "node", "s3store", "lib", "upload-worker.js");
+    var execScript = path.join(appRoot, 'node', 'qiniu-store', 'lib', 'upload-worker.js');
 
     if (data.params.isDebug) {
       event.sender.send(data.job, {
@@ -279,11 +274,11 @@ ipcMain.on("asynchronous-job", (event, data) => {
     forkedWorkers.set(data.job, worker);
 
     worker.send({
-      key: "start",
+      key: 'start',
       data: data
     });
 
-    worker.on("message", function (msg) {
+    worker.on('message', function (msg) {
       if (!win) return;
 
       if (data.params.isDebug) {
@@ -416,14 +411,14 @@ ipcMain.on("asynchronous-job", (event, data) => {
   case "job-download":
     var forkOptions = {
       cwd: root,
-      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      stdio: [0, 1, 2, 'ipc'],
       silent: true
     };
     if (data.params.useElectronNode != true) {
       forkOptions.execPath = execNode;
     }
 
-    var execScript = path.join(appRoot, "node", "s3store", "lib", "download-worker.js");
+    var execScript = path.join(appRoot, 'node', 'qiniu-store', 'lib', 'download-worker.js');
 
     if (data.params.isDebug) {
       event.sender.send(data.job, {

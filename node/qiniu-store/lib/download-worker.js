@@ -1,7 +1,7 @@
 "use strict";
 
 const {
-  Client
+  createClient
 } = require("./ioutil");
 
 process.on('uncaughtException', function (err) {
@@ -25,9 +25,9 @@ process.on('message', (msg) => {
     break;
 
   case 'start':
-    var client = new Client(msg.data.options);
+    const client = createClient(msg.data.clientOptions, msg.data.options);
 
-    let downloader = client.downloadFile(msg.data.params);
+    const downloader = client.downloadFile(msg.data.params);
     downloader.on('fileStat', (prog) => {
       process.send({
         job: msg.data.job,

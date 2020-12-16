@@ -1,8 +1,8 @@
-angular.module("web").factory("s3UploadMgr", [
+angular.module("web").factory("UploadMgr", [
   "$q",
   "$timeout",
   "$translate",
-  "s3Client",
+  "QiniuClient",
   "AuthInfo",
   "Config",
   "settingsSvs",
@@ -10,7 +10,7 @@ angular.module("web").factory("s3UploadMgr", [
     $q,
     $timeout,
     $translate,
-    s3Client,
+    QiniuClient,
     AuthInfo,
     Config,
     settingsSvs
@@ -20,7 +20,7 @@ angular.module("web").factory("s3UploadMgr", [
           https = require("https"),
           path = require("path"),
           os = require("os"),
-          S3Store = require("./node/s3store"),
+          QiniuStore = require("./node/qiniu-store"),
           T = $translate.instant;
 
     var $scope;
@@ -42,14 +42,12 @@ angular.module("web").factory("s3UploadMgr", [
       $scope = scope;
       $scope.lists.uploadJobList = [];
 
-      const progs = tryLoadProg();
-      angular.forEach(progs, function (prog) {
-        createJob(prog).then((job) => {
-          if (job.status == "waiting" || job.status == "running") {
-            job.stop();
-          }
-          addEvents(job);
-        });
+      angular.forEach(tryLoadProg(), (prog) => {
+        const job = createJob(prog);
+        if (job.status === "waiting" || job.status === "running") {
+          job.stop();
+        }
+        addEvents(job);
       });
     }
 
@@ -61,50 +59,37 @@ angular.module("web").factory("s3UploadMgr", [
                 job.events: statuschange, progress
       */
     function createJob(options) {
-      const df = $q.defer(),
-            auth = AuthInfo.get(),
-            bucket = options.to.bucket,
-            region = options.region || auth.region;
+      const bucket = options.to.bucket,
+            region = options.region;
 
-      s3Client.getClient({ bucket: bucket, region: region }).then((client) => {
-        console.info(
-          "PUT",
-          "::",
-          region,
-          "::",
-          options.from.path + "/" + options.from.name,
-          "=>",
-          options.to.bucket + "/" + options.to.key
-        );
+      console.info(
+        "PUT",
+        "::",
+        region,
+        "::",
+        options.from.path + "/" + options.from.name,
+        "=>",
+        options.to.bucket + "/" + options.to.key
+      );
 
-        options.region = region;
-        options.resumeUpload = (settingsSvs.resumeUpload.get() == 1);
-        options.multipartUploadSize = settingsSvs.multipartUploadSize.get();
-        options.multipartUploadThreshold = settingsSvs.multipartUploadThreshold.get();
-        options.uploadSpeedLimit = (settingsSvs.uploadSpeedLimitEnabled.get() == 1 && settingsSvs.uploadSpeedLimitKBperSec.get());
-        options.useElectronNode = (settingsSvs.useElectronNode.get() == 1);
-        options.isDebug = (settingsSvs.isDebug.get() == 1);
+      const config = Config.load();
 
-        const agentOptions = { keepAlive: true, keepAliveMsecs: 30000 };
-        const store = new S3Store({
-          credential: {
-            accessKeyId: auth.id,
-            secretAccessKey: auth.secret
-          },
-          endpoint: client.config.endpoint,
-          region: region,
-          httpOptions: {
-            connectTimeout: 3000, // 3s
-            timeout: 300000, // 5m
-            agent: client.config.endpoint.startsWith('https://') ? new https.Agent(agentOptions) : new http.Agent(agentOptions)
-          }
-        });
-        df.resolve(store.createUploadJob(options));
-      }, (err) => {
-        df.reject(err);
-      });
+      options.clientOptions = {
+        accessKey: AuthInfo.get().id,
+        secretKey: AuthInfo.get().secret,
+        ucUrl: config.ucUrl,
+        regions: config.regions || [],
+      };
+      options.region = region;
+      options.resumeUpload = (settingsSvs.resumeUpload.get() == 1);
+      options.multipartUploadSize = settingsSvs.multipartUploadSize.get();
+      options.multipartUploadThreshold = settingsSvs.multipartUploadThreshold.get();
+      options.uploadSpeedLimit = (settingsSvs.uploadSpeedLimitEnabled.get() == 1 && settingsSvs.uploadSpeedLimitKBperSec.get());
+      options.useElectronNode = (settingsSvs.useElectronNode.get() == 1);
+      options.isDebug = (settingsSvs.isDebug.get() == 1);
 
-      return df.promise;
+      const store = new QiniuStore();
+      return store.createUploadJob(options);
     }
 
     /**
@@ -197,10 +182,10 @@ angular.module("web").factory("s3UploadMgr", [
             subDirPath = subDirPath.replace(/\\/g, "/");
           }
 
-          s3Client
-            .createFolder(bucketInfo.region, bucketInfo.bucket, subDirPath)
+          QiniuClient
+            .createFolder(bucketInfo.regionId, bucketInfo.bucketName, subDirPath)
             .then(() => {
-              checkNeedRefreshFileList(bucketInfo.bucket, subDirPath);
+              checkNeedRefreshFileList(bucketInfo.bucketName, subDirPath);
             });
 
           //递归遍历目录
@@ -224,22 +209,21 @@ angular.module("web").factory("s3UploadMgr", [
             filePath = filePath.replace(/\\/g, "/");
           }
 
-          createJob({
-            region: bucketInfo.region,
-            from: {
-              name: fileName,
-              path: absPath
-            },
-            to: {
-              bucket: bucketInfo.bucket,
-              bucketName: bucketInfo.bucketName,
-              key: filePath
-            },
-            overwrite: $scope.overwriteUploading.enabled
-          }).then((job) => {
-            addEvents(job);
-            $timeout(() => { callFn([job]); }, 1);
-          });
+          const job = createJob({
+                        region: bucketInfo.regionId,
+                        from: {
+                          name: fileName,
+                          path: absPath
+                        },
+                        to: {
+                          bucket: bucketInfo.bucketName,
+                          key: filePath
+                        },
+                        overwrite: $scope.overwriteUploading.enabled,
+                        backendMode: bucketInfo.qiniuBackendMode,
+                      });
+          addEvents(job);
+          $timeout(() => { callFn([job]); }, 1);
         }
       }
     }
@@ -266,13 +250,11 @@ angular.module("web").factory("s3UploadMgr", [
       });
       job.on("partcomplete", (data) => {
         job.uploadedId = data.uploadId;
-        job.uploadedParts[data.part.PartNumber] = data.part;
+        job.uploadedParts[data.part.partNumber] = data.part;
 
         trySaveProg();
 
-        $timeout(() => {
-          $scope.calcTotalProg();
-        });
+        $timeout($scope.calcTotalProg);
       });
       job.on("statuschange", (status) => {
         if (status == "stopped") {
@@ -332,7 +314,7 @@ angular.module("web").factory("s3UploadMgr", [
             console.log(`[JOB] sched ${job.status} => ${JSON.stringify(job._config)}`);
           }
 
-          if (job.status == "waiting") {
+          if (job.status === 'waiting') {
             concurrency++;
 
             if (job.prog.resumable) {
@@ -354,7 +336,11 @@ angular.module("web").factory("s3UploadMgr", [
     function trySaveProg() {
       var t = {};
       angular.forEach($scope.lists.uploadJobList, (job) => {
-        if (job.status == "finished") return;
+        if (job.status === 'finished') return;
+
+        if (!job.uploadedParts) {
+          job.uploadedParts = [];
+        }
 
         t[job.id] = {
           region: job.region,
@@ -364,8 +350,11 @@ angular.module("web").factory("s3UploadMgr", [
           status: job.status,
           message: job.message,
           uploadedId: job.uploadedId,
-          uploadedParts: job.uploadedParts,
-          overwrite: job.overwrite
+          uploadedParts: job.uploadedParts.map((part) => {
+            return { PartNumber: part.partNumber, ETag: part.etag };
+          }),
+          overwrite: job.overwrite,
+          backendMode: job.backendMode,
         };
       });
 
@@ -373,13 +362,22 @@ angular.module("web").factory("s3UploadMgr", [
     }
 
     function tryLoadProg() {
+      let progs = {};
       try {
-        var data = fs.readFileSync(getProgFilePath());
-
-        return JSON.parse(data ? data.toString() : "[]");
+        const data = fs.readFileSync(getProgFilePath());
+        progs = JSON.parse(data);
       } catch (e) {}
 
-      return [];
+      Object.entries(progs).forEach(([jobId, job]) => {
+        if (!job.uploadedParts) {
+          job.uploadedParts = [];
+        }
+        job.uploadedParts = job.uploadedParts.map((part) => {
+          return { partNumber: part.PartNumber, etag: part.ETag };
+        });
+      });
+
+      return progs;
     }
 
     function getProgFilePath() {
@@ -388,13 +386,12 @@ angular.module("web").factory("s3UploadMgr", [
         fs.mkdirSync(folder);
       }
 
-      var username = AuthInfo.get().id || "kodo-browser";
-
+      const username = AuthInfo.get().id || "kodo-browser";
       return path.join(folder, "upprog_" + username + ".json");
     }
 
     function checkNeedRefreshFileList(bucket, key) {
-      if ($scope.currentInfo.bucket == bucket) {
+      if ($scope.currentInfo.bucketName == bucket) {
         var p = path.dirname(key) + "/";
         p = p == "./" ? "" : p;
 

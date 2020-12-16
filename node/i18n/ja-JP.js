@@ -80,7 +80,7 @@ module.exports = {
 
   "storageClassesType": "保管タイプ",
   "storageClassesType.standard": "標準",
-  "storageClassesType.line": "IA",
+  "storageClassesType.infrequentaccess": "IA",
   "storageClassesType.glacier": "アーカイブ",
 
   "aclType.default": "バケツからの継承",

@@ -6,7 +6,6 @@ angular.module('web')
         bucketInfo: bucketInfo,
         objectInfo: objectInfo,
         fileType: fileType,
-        afterRestoreSubmit:afterRestoreSubmit,
         afterCheckSuccess:afterCheckSuccess,
 
         previewBarVisible: false,
@@ -18,12 +17,9 @@ angular.module('web')
 
         showAsCodeBtn: shouldShowAsCodeBtn()
       });
-      function afterRestoreSubmit(){
-        showFn.callback(true);
-      }
+
       function afterCheckSuccess() {
         $scope.previewBarVisible = true;
-
       }
 
       function shouldShowAsCodeBtn(){

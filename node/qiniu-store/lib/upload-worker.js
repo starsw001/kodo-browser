@@ -1,7 +1,7 @@
 "use strict";
 
 const {
-  Client
+  createClient
 } = require("./ioutil");
 
 process.on('uncaughtException', function (err) {
@@ -25,9 +25,9 @@ process.on('message', function (msg) {
     break;
 
   case 'start':
-    var client = new Client(msg.data.options);
+    const client = createClient(msg.data.clientOptions, msg.data.options);
 
-    var uploader = client.uploadFile(msg.data.params);
+    const uploader = client.uploadFile(msg.data.params);
     uploader.on('fileDuplicated', (prog) => {
       process.send({
         job: msg.data.job,

@@ -20,7 +20,7 @@ class DownloadJob extends Base {
    *    config.multipartDownloadThreshold  {number} default 100M
    *
    */
-  constructor(s3options, config) {
+  constructor(config) {
     super();
 
     this._config = Object.assign({}, config);
@@ -34,12 +34,14 @@ class DownloadJob extends Base {
     }
 
     this.id = "dj-" + new Date().getTime() + "-" + ("" + Math.random()).substring(2);
+    this.clientOptions = this._config.clientOptions;
+    this.kodoBrowserVersion = Global.app.version;
 
-    this.s3options = s3options;
-
-    this.from = this._config.from; //s3 path
-    this.to = util.parseLocalPath(this._config.to); //local path
+    this.from = this._config.from;
+    this.to = util.parseLocalPath(this._config.to);
     this.region = this._config.region;
+    this.domain = this._config.domain;
+    this.backendMode = this._config.backendMode;
 
     this.prog = this._config.prog || {};
     this.prog.total = this.prog.total || 0;
@@ -85,8 +87,8 @@ DownloadJob.prototype.start = function (params) {
   let job = {
     job: this.id,
     key: 'job-download',
+    clientOptions: Object.assign(this.clientOptions, { backendMode: this.backendMode }),
     options: {
-      s3Options: this.s3options,
       resumeDownload: this.resumeDownload,
       maxConcurrency: this.maxConcurrency,
       multipartDownloadThreshold: this.multipartDownloadThreshold * 1024 * 1024,
@@ -94,13 +96,17 @@ DownloadJob.prototype.start = function (params) {
       downloadSpeedLimit: this.downloadSpeedLimit
     },
     params: {
-      url: this.from.url,
+      region: this.region,
+      domain: this.domain,
+      bucket: this.from.bucket,
+      key: this.from.key,
       localFile: this.tmpfile,
       downloadedBytes: params.prog.synced,
-      useElectronNode: this.useElectronNode,
+      useElectronNode: !!this.useElectronNode,
       isDebug: this.isDebug
     }
   };
+
   if (this.isDebug) {
     console.log(`[JOB] ${JSON.stringify(job)}`);
   }

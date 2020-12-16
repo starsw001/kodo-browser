@@ -6,12 +6,11 @@ angular.module("web").controller("filesCtrl", [
   "$timeout",
   "$translate",
   "$location",
+  "safeApply",
   "Auth",
   "AuthInfo",
   "AuditLog",
-  "s3Client",
-  "KodoClient",
-  "bucketMap",
+  "QiniuClient",
   "settingsSvs",
   "ExternalPath",
   "fileSvs",
@@ -27,22 +26,20 @@ angular.module("web").controller("filesCtrl", [
     $timeout,
     $translate,
     $location,
+    safeApply,
     Auth,
     AuthInfo,
     AuditLog,
-    s3Client,
-    KodoClient,
-    bucketMap,
+    QiniuClient,
     settingsSvs,
     ExternalPath,
     fileSvs,
     Toast,
     Dialog,
     Customize,
-    Domains
+    Domains,
   ) {
-    const filter = require("array-filter"),
-          deepEqual = require('fast-deep-equal'),
+    const deepEqual = require('fast-deep-equal'),
           { Base64 } = require('js-base64'),
           T = $translate.instant;
 
@@ -56,7 +53,6 @@ angular.module("web").controller("filesCtrl", [
       },
 
       currentListView: true,
-      currentBucketPerm: {},
       keepMoveOptions: null,
 
       transVisible: localStorage.getItem("transVisible") == "true",
@@ -140,7 +136,6 @@ angular.module("web").controller("filesCtrl", [
       showDownloadLink: showDownloadLink,
       showDownloadLinkOfFilesSelected: showDownloadLinkOfFilesSelected,
       showPreview: showPreview,
-      showACL: showACL,
 
       showPaste: showPaste,
       cancelPaste: cancelPaste
@@ -180,7 +175,8 @@ angular.module("web").controller("filesCtrl", [
 
     /////////////////////////////////
     function gotoAddress(bucket, prefix) {
-      let kodoAddress = "kodo://";
+      const KODO_ADDR_PROTOCOL = 'kodo://';
+      let kodoAddress = KODO_ADDR_PROTOCOL;
 
       if (bucket.startsWith(kodoAddress)) {
         bucket = bucket.substring(kodoAddress.length);
@@ -232,8 +228,8 @@ angular.module("web").controller("filesCtrl", [
     }
 
     function refreshDomains() {
-      const info = angular.copy($scope.currentInfo);
-      Domains.list(info.region, info.bucket).
+      const info = $scope.currentInfo;
+      Domains.list(info.regionId, info.bucketName).
               then((domains) => {
                 $scope.domains = domains;
                 let found = false;
@@ -326,9 +322,10 @@ angular.module("web").controller("filesCtrl", [
             onKodoAddressChange = (addr) => {
         let fileName;
 
-        const info = s3Client.parseKodoPath(addr);
+        const info = QiniuClient.parseKodoPath(addr);
+        info.qiniuBackendMode = QiniuClient.clientBackendMode();
         $scope.currentInfo = info;
-        if (!info.bucket) {
+        if (!info.bucketName) {
           $scope.domains = [];
           $scope.selectedDomain.bucketName = null;
           $scope.selectedDomain.domain = null;
@@ -343,25 +340,26 @@ angular.module("web").controller("filesCtrl", [
           }
         }
 
-        if (info.bucket) {
+        if (info.bucketName) {
           // list objects
-          const bucketInfo = $rootScope.bucketMap[info.bucket];
+          const bucketInfo = $rootScope.bucketsMap[info.bucketName];
           if (bucketInfo) {
-            if (!bucketInfo.region) {
+            if (!bucketInfo.regionId) {
               Toast.error("Forbidden");
               clearFilesList();
               return;
             }
-            $scope.currentInfo.region = bucketInfo.region;
+            $scope.currentInfo.regionId = bucketInfo.regionId;
             $scope.ref.mode = 'localFiles';
             info.bucketName = bucketInfo.name;
-            info.bucket = bucketInfo.bucketId;
+            info.bucketId = bucketInfo.id;
           } else {
-            const region = ExternalPath.getRegionByBucketSync(info.bucket);
-            if (region) {
-              $scope.currentInfo.region = region;
+            const regionId = ExternalPath.getRegionByBucketSync(info.bucketName);
+            if (regionId) {
+              $scope.currentInfo.regionId = regionId;
               $scope.ref.mode = 'externalFiles';
-              info.bucketName = info.bucket; // TODO: Use bucket name here
+              info.bucketName = info.bucketName;
+              // TODO: Add bucket id here
             } else {
               Toast.error("Forbidden");
               clearFilesList();
@@ -370,23 +368,16 @@ angular.module("web").controller("filesCtrl", [
           }
 
           if (info.bucketName !== $scope.selectedDomain.bucketName) {
-            $scope.domains = [Domains.s3(info.region, info.bucketName)];
+            $scope.domains = [Domains.s3(info.regionId, info.bucketName)];
             $scope.selectedDomain.bucketName = info.bucketName;
             $scope.selectedDomain.domain = $scope.domains[0];
           }
 
-          $scope.currentBucket = info.bucket;
+          $scope.currentBucketId = info.bucketId;
           $scope.currentBucketName = info.bucketName;
 
           // try to resolve bucket perm
           const user = $rootScope.currentUser;
-          if (user.perm) {
-            if (user.isSuper) {
-              $scope.currentBucketPerm = user.perm;
-            } else {
-              $scope.currentBucketPerm = user.perm[info.bucket];
-            }
-          }
 
           if (showDomains()) {
             refreshDomains();
@@ -419,17 +410,20 @@ angular.module("web").controller("filesCtrl", [
         evt.stopPropagation();
 
         console.log(`on:kodoAddressChange: ${addr}`);
-        if ($rootScope.bucketMap) {
+        if ($rootScope.bucketsMap) {
           onKodoAddressChange(addr);
         } else {
           $scope.isLoading = true;
-          bucketMap.load().then((map) => {
-            $rootScope.bucketMap = map;
-            $scope.isLoading = false;
+
+          QiniuClient.listAllBuckets().then((bucketList) => {
+            $rootScope.bucketsMap = {};
+            bucketList.forEach((bucket) => {
+              $rootScope.bucketsMap[bucket.name] = bucket;
+            });
             onKodoAddressChange(addr);
-          }, (err) => {
+          }).finally(() => {
             $scope.isLoading = false;
-            throw err;
+            safeApply($scope);
           });
         }
       });
@@ -437,28 +431,29 @@ angular.module("web").controller("filesCtrl", [
 
     function listBuckets(fn) {
       clearFilesList();
+      $scope.isLoading = true;
 
-      $timeout(() => {
-        $scope.isLoading = true;
-      });
-
-      bucketMap.load().then((bucketMap) => {
-        $rootScope.bucketMap = bucketMap;
+      QiniuClient.listAllBuckets().then((bucketList) => {
+        $rootScope.bucketsMap = {};
+        bucketList.forEach((bucket) => {
+          $rootScope.bucketsMap[bucket.name] = bucket;
+        });
 
         const buckets = [];
-        for (const bucketName in bucketMap) {
+        for (const bucketName in $rootScope.bucketsMap) {
           if ($scope.sch.bucketName && bucketName.indexOf($scope.sch.bucketName) < 0) {
             continue;
           }
-          buckets.push(bucketMap[bucketName]);
+          buckets.push($rootScope.bucketsMap[bucketName]);
         }
         $scope.buckets = buckets;
-        $scope.isLoading = false;
         showBucketsTable(buckets);
         if (fn) fn(null);
       }, (err) => {
-        $scope.isLoading = false;
         if (fn) fn(err);
+      }).finally(() => {
+        $scope.isLoading = false;
+        safeApply($scope);
       });
     }
 
@@ -480,7 +475,7 @@ angular.module("web").controller("filesCtrl", [
         }
 
         if (err) {
-          Toast.error(JSON.stringify(err));
+          Toast.error(err.message);
           return;
         }
 
@@ -489,11 +484,11 @@ angular.module("web").controller("filesCtrl", [
     }
 
     function tryListFiles(info, marker, fn) {
-      if (!info || !info.bucket) {
+      if (!info || !info.bucketName) {
         return;
       }
 
-      s3Client.listFiles(info.region, info.bucket, info.key, marker || "").then((result) => {
+      QiniuClient.listFiles(info.regionId, info.bucketName, info.key, marker || "").then((result) => {
         $timeout(() => {
           if (info.bucketName !== $scope.currentInfo.bucketName ||
               info.key !== $scope.currentInfo.key + $scope.sch.objectName) {
@@ -562,7 +557,7 @@ angular.module("web").controller("filesCtrl", [
 
       tryListFiles(info, nextObjectsMarker, (err, files) => {
         if (err) {
-          Toast.error(JSON.stringify(err));
+          Toast.error(err.message);
           return;
         }
 
@@ -580,7 +575,7 @@ angular.module("web").controller("filesCtrl", [
 
       ExternalPath.list().then((externalPaths) => {
         if ($scope.sch.externalPathName) {
-          externalPaths = filter(externalPaths, (ep) => { return ep.shortPath.indexOf($scope.sch.externalPathName) >= 0; });
+          externalPaths = externalPaths.filter((ep) => ep.shortPath.indexOf($scope.sch.externalPathName) >= 0);
         }
 
         $timeout(() => {
@@ -599,14 +594,15 @@ angular.module("web").controller("filesCtrl", [
     }
 
     function isFrozenOrNot(region, bucket, key, callbacks) {
-      s3Client.isFrozenOrNot(region, bucket, key).then((data) => {
-        if (callbacks[data.status]) {
-          callbacks[data.status]();
+      QiniuClient.getFrozenInfo(region, bucket, key).then((data) => {
+        const callback = callbacks[data.status.toLowerCase()];
+        if (callback) {
+          callback();
         }
       }, (err) => {
-        Toast.error(JSON.stringify(err));
-        if (callbacks['error']) {
-          callbacks['error'](err);
+        const callback = callbacks.error;
+        if (callback) {
+          callback(err);
         }
       });
     }
@@ -627,7 +623,7 @@ angular.module("web").controller("filesCtrl", [
             };
           },
           regions: () => {
-            return KodoClient.getRegionLabels();
+            return QiniuClient.getRegions();
           }
         }
       }).result.then(angular.noop, angular.noop);
@@ -648,7 +644,7 @@ angular.module("web").controller("filesCtrl", [
             };
           },
           regions: () => {
-            return KodoClient.getRegionLabels();
+            return QiniuClient.getRegions();
           }
         }
       }).result.then(angular.noop, angular.noop);
@@ -658,17 +654,15 @@ angular.module("web").controller("filesCtrl", [
       const title = T("bucket.delete.title"),
           message = T("bucket.delete.message", {
             name: item.name,
-            region: item.region
+            region: item.regionId,
           });
 
-      Dialog.confirm(
-        title,
-        message,
+      Dialog.confirm(title, message,
         (btn) => {
           if (btn) {
-            s3Client.deleteBucket(item.region, item.name).then(() => {
+            QiniuClient.deleteBucket(item.regionId, item.name).then(() => {
               AuditLog.log('deleteBucket', {
-                regionId: item.region,
+                regionId: item.regionId,
                 name: item.name,
               });
               Toast.success(T("bucket.delete.success")); //删除Bucket成功
@@ -768,26 +762,16 @@ angular.module("web").controller("filesCtrl", [
           fileType: () => {
             return fileType;
           },
+          selectedDomain: () => {
+            return $scope.selectedDomain;
+          },
           reload: () => {
             return () => {
               $timeout(listFiles, 300);
             };
           },
-          downloadUrl: () => {
-            return $scope.selectedDomain.domain.signatureUrl(item.path, 600);
-          },
           showFn: () => {
             return {
-              callback: (reloadStorageStatus) => {
-                if (reloadStorageStatus) {
-                  $timeout(() => {
-                    s3Client.loadStorageStatus(
-                      $scope.currentInfo.region,
-                      $scope.currentInfo.bucket, [item]
-                    );
-                  }, 300);
-                }
-              },
               preview: showPreview,
               download: () => {
                 showDownload(item);
@@ -804,12 +788,6 @@ angular.module("web").controller("filesCtrl", [
               downloadLink: () => {
                 showDownloadLink(item);
               },
-              acl: () => {
-                showACL(item);
-              },
-              crc: () => {
-                showCRC(item);
-              }
             };
           }
         }
@@ -836,9 +814,7 @@ angular.module("web").controller("filesCtrl", [
           },
           callback: () => {
             return () => {
-              $timeout(() => {
-                listFiles();
-              }, 300);
+              $timeout(listFiles, 100);
             };
           }
         }
@@ -846,14 +822,14 @@ angular.module("web").controller("filesCtrl", [
     }
 
     function showPaste() {
-      var keyword = $scope.keepMoveOptions.isCopy ? T("copy") : T("move");
+      var keyword = $scope.keepMoveOptions.isCopy ? T('copy') : T('move');
 
       if ($scope.keepMoveOptions.items.length == 1 &&
           deepEqual($scope.currentInfo, $scope.keepMoveOptions.currentInfo)) {
         $modal.open({
-          templateUrl: "main/files/modals/rename-modal.html",
-          controller: "renameModalCtrl",
-          backdrop: "static",
+          templateUrl: 'main/files/modals/rename-modal.html',
+          controller: 'renameModalCtrl',
+          backdrop: 'static',
           resolve: {
             item: () => {
               return angular.copy($scope.keepMoveOptions.items[0]);
@@ -870,10 +846,7 @@ angular.module("web").controller("filesCtrl", [
             callback: () => {
               return () => {
                 $scope.keepMoveOptions = null;
-
-                $timeout(() => {
-                  listFiles();
-                }, 100);
+                $timeout(listFiles, 100);
               };
             }
           }
@@ -912,10 +885,7 @@ angular.module("web").controller("filesCtrl", [
               callback: () => {
                 return () => {
                   $scope.keepMoveOptions = null;
-
-                  $timeout(() => {
-                    listFiles();
-                  }, 100);
+                  $timeout(listFiles, 100);
                 };
               }
             }
@@ -991,21 +961,6 @@ angular.module("web").controller("filesCtrl", [
       }).result.then(angular.noop, angular.noop);
     }
 
-    function showACL(item) {
-      $modal.open({
-        templateUrl: "main/files/modals/update-acl-modal.html",
-        controller: "updateACLModalCtrl",
-        resolve: {
-          item: () => {
-            return angular.copy(item);
-          },
-          currentInfo: () => {
-            return angular.copy($scope.currentInfo);
-          }
-        }
-      }).result.then(angular.noop, angular.noop);
-    }
-
     function showRestore(item) {
       $modal.open({
         templateUrl: "main/files/modals/restore-modal.html",
@@ -1017,31 +972,6 @@ angular.module("web").controller("filesCtrl", [
           currentInfo: () => {
             return angular.copy($scope.currentInfo);
           },
-          callback: () => {
-            return () => {
-              $timeout(() => {
-                s3Client.loadStorageStatus(
-                  $scope.currentInfo.region,
-                  $scope.currentInfo.bucket, [item]
-                );
-              }, 300);
-            };
-          }
-        }
-      }).result.then(angular.noop, angular.noop);
-    }
-
-    function showCRC(item) {
-      $modal.open({
-        templateUrl: "main/files/modals/crc-modal.html",
-        controller: "crcModalCtrl",
-        resolve: {
-          item: () => {
-            return angular.copy(item);
-          },
-          currentInfo: () => {
-            return angular.copy($scope.currentInfo);
-          }
         }
       }).result.then(angular.noop, angular.noop);
     }
@@ -1051,9 +981,10 @@ angular.module("web").controller("filesCtrl", [
             fromInfo = angular.copy(item),
             domain = angular.copy($scope.selectedDomain.domain);
 
-      fromInfo.region = bucketInfo.region;
-      fromInfo.bucket = bucketInfo.bucket;
+      fromInfo.region = bucketInfo.regionId;
+      fromInfo.bucket = bucketInfo.bucketName;
       fromInfo.domain = domain;
+      fromInfo.qiniuBackendMode = bucketInfo.qiniuBackendMode;
       Dialog.showDownloadDialog((folderPaths) => {
         if (!folderPaths || folderPaths.length == 0) {
           return;
@@ -1081,9 +1012,7 @@ angular.module("web").controller("filesCtrl", [
           },
           callback: () => {
             return () => {
-              $timeout(() => {
-                listFiles();
-              }, 300);
+              $timeout(listFiles, 300);
             };
           }
         }
@@ -1092,13 +1021,15 @@ angular.module("web").controller("filesCtrl", [
 
     ////////////////////////
     function selectBucket(item) {
-      $timeout(() => {
-        if ($scope.bucket_sel == item) {
+      if ($scope.bucket_sel === item) {
+        $timeout(() => {
           $scope.bucket_sel = null;
-        } else {
+        });
+      } else {
+        $timeout(() => {
           $scope.bucket_sel = item;
-        }
-      });
+        });
+      }
     }
 
     function selectFile(item) {
@@ -1204,9 +1135,10 @@ angular.module("web").controller("filesCtrl", [
 
       const selectedFiles = angular.copy($scope.sel.has);
       angular.forEach(selectedFiles, (n) => {
-        n.region = $scope.currentInfo.region;
-        n.bucket = $scope.currentInfo.bucket;
+        n.region = $scope.currentInfo.regionId;
+        n.bucket = $scope.currentInfo.bucketName;
         n.domain = angular.copy($scope.selectedDomain.domain);
+        n.qiniuBackendMode = $scope.currentInfo.qiniuBackendMode;
       });
       /**
        * @param fromS3Path {array}  item={region, bucket, path, name, size }
@@ -1241,10 +1173,11 @@ angular.module("web").controller("filesCtrl", [
 
     function showBucketsTable(buckets) {
       initBucketSelect();
-      KodoClient.getRegionLabels().then((regions) => {
+
+      QiniuClient.getRegions().then((regions) => {
         var $list = $('#bucket-list').bootstrapTable({
           columns: [{
-            field: 'id',
+            field: '_',
             title: '-',
             radio: true
           }, {
@@ -1261,22 +1194,21 @@ angular.module("web").controller("filesCtrl", [
               }
             }
           }, {
-            field: 'region',
+            field: 'regionId',
             title: T('bucket.region'),
             formatter: (id) => {
-              if (id === null) {
+              if (!id) {
                 return T('region.get.error');
               }
-              let regionLabel = T('region.unknown');
-              each(regions, (region) => {
-                if (region.id === id && region.label) {
-                  regionLabel = region.label;
-                }
-              })
-              return regionLabel;
+              let regionLabel = undefined;
+              const region = regions.find((region) => region.s3Id === id && region.label);
+              if (region) {
+                regionLabel = region.label;
+              }
+              return regionLabel || T('region.unknown');
             }
           }, {
-            field: 'creationDate',
+            field: 'createDate',
             title: T('creationTime'),
             formatter: (val) => {
               return $filter('timeFormat')(val);
@@ -1284,7 +1216,7 @@ angular.module("web").controller("filesCtrl", [
           }],
           clickToSelect: true,
           onCheck: (row, $row) => {
-            if (row == $scope.bucket_sel) {
+            if (row === $scope.bucket_sel) {
               $row.parents('tr').removeClass('info');
 
               $list.bootstrapTable('uncheckBy', {
@@ -1298,7 +1230,6 @@ angular.module("web").controller("filesCtrl", [
             } else {
               $list.find('tr').removeClass('info');
               $row.parents('tr').addClass('info');
-
               $timeout(() => {
                 $scope.bucket_sel = row;
               });
@@ -1317,10 +1248,11 @@ angular.module("web").controller("filesCtrl", [
 
     function showExternalPathsTable(externalPaths) {
       initExternalPathSelect();
-      KodoClient.getRegionLabels().then((regions) => {
+
+      QiniuClient.getRegions().then((regions) => {
         var $list = $('#external-path-list').bootstrapTable({
           columns: [{
-            field: 'id',
+            field: '_',
             title: '-',
             radio: true
           }, {
@@ -1343,13 +1275,12 @@ angular.module("web").controller("filesCtrl", [
               if (id === null) {
                 return T('region.get.error');
               }
-              let regionLabel = T('region.unknown');
-              each(regions, (region) => {
-                if (region.id === id && region.label) {
-                  regionLabel = region.label;
-                }
-              })
-              return regionLabel;
+              let regionLabel = undefined;
+              const region = regions.find((region) => region.s3Id === id && region.label);
+              if (region) {
+                regionLabel = region.label;
+              }
+              return regionLabel || T('region.unknown');
             }
           }],
           clickToSelect: true,
@@ -1391,7 +1322,7 @@ angular.module("web").controller("filesCtrl", [
       }
       var $list = $('#file-list').bootstrapTable({
         columns: [{
-          field: 'id',
+          field: '_',
           title: '-',
           checkbox: true
         }, {
@@ -1399,11 +1330,12 @@ angular.module("web").controller("filesCtrl", [
           title: T('name'),
           formatter: (val, row, idx, field) => {
             let htmlAttributes = '';
-            if (row.StorageClass) {
-              htmlAttributes = `data-storage-class="${row.StorageClass.toLowerCase()}" data-key="${Base64.encode(row.Key)}" data-region="${$scope.currentInfo.region}" data-bucket="${$scope.currentInfo.bucket}"`;
+            if (row.storageClass) {
+              const currentInfo = $scope.currentInfo;
+              htmlAttributes = `data-storage-class="${row.storageClass.toLowerCase()}" data-key="${Base64.encode(row.name)}" data-region="${currentInfo.regionId}" data-bucket="${currentInfo.bucketName}"`;
             }
             return `
-              <div class="text-overflow file-item-name" style="cursor:pointer; ${row.isFolder?'color:orange':''}" ${htmlAttributes}>
+              <div class="text-overflow file-item-name" style="cursor:pointer; ${row.itemType === 'folder' ? 'color:orange' : ''}" ${htmlAttributes}>
                 <i class="fa fa-${$filter('fileIcon')(row)}"></i>
                 <a href="" style="width: 800px; display: inline-block;"><span>${$filter('htmlEscape')(val)}</span></a>
               </div>
@@ -1411,7 +1343,7 @@ angular.module("web").controller("filesCtrl", [
           },
           events: {
             'click a': (evt, val, row, idx) => {
-              if (row.isFolder) {
+              if (row.itemType === 'folder') {
                 $timeout(() => {
                   $scope.total_folders = 0;
                 });
@@ -1422,7 +1354,7 @@ angular.module("web").controller("filesCtrl", [
               return false;
             },
             'dblclick a': (evt, val, row, idx) => {
-              if (row.isFolder) {
+              if (row.itemType === 'folder') {
                 $timeout(() => {
                   $scope.total_folders = 0;
                 });
@@ -1439,7 +1371,7 @@ angular.module("web").controller("filesCtrl", [
           field: 'size',
           title: `${T('type')} / ${T('size')}`,
           formatter: (val, row, idx, field) => {
-            if (row.isFolder) {
+            if (row.itemType === 'folder') {
               return `<span class="text-muted">${T('folder')}</span>`;
             }
 
@@ -1449,7 +1381,7 @@ angular.module("web").controller("filesCtrl", [
           field: 'storageClass',
           title: T('storageClassesType'),
           formatter: (val, row, idx, field) => {
-            if (row.isFolder) {
+            if (row.itemType === 'folder') {
               return `<span class="text-muted">${T('folder')}</span>`;
             } else if (row.storageClass) {
               return T(`storageClassesType.${row.storageClass.toLowerCase()}`);
@@ -1461,7 +1393,7 @@ angular.module("web").controller("filesCtrl", [
           field: 'lastModified',
           title: T('lastModifyTime'),
           formatter: (val, row, idx, field) => {
-            if (row.isFolder) {
+            if (row.itemType === 'folder') {
               return '-';
             }
 
@@ -1471,23 +1403,15 @@ angular.module("web").controller("filesCtrl", [
           field: 'actions',
           title: T('actions'),
           formatter: (val, row, idx, field) => {
-            if (!$scope.currentBucketPerm) {
-              return "-";
-            }
-
             var acts = ['<div class="btn-group btn-group-xs">'];
-            if (row.StorageClass && row.StorageClass.toLowerCase() == 'glacier') {
+            if (row.itemType !== 'folder' && row.storageClass && row.storageClass.toLowerCase() === 'glacier') {
               acts.push(`<button type="button" class="btn unfreeze text-warning" data-toggle="tooltip" data-toggle-i18n="restore"><span class="fa fa-fire"></span></button>`);
             }
-            if ($scope.currentBucketPerm.read) {
-              acts.push(`<button type="button" class="btn download" data-toggle="tooltip" data-toggle-i18n="download"><span class="fa fa-download"></span></button>`);
-              if (!row.isFolder) {
-                acts.push(`<button type="button" class="btn download-link" data-toggle="tooltip" data-toggle-i18n="getDownloadLink"><span class="fa fa-link"></span></button>`);
-              }
+            acts.push(`<button type="button" class="btn download" data-toggle="tooltip" data-toggle-i18n="download"><span class="fa fa-download"></span></button>`);
+            if (row.itemType !== 'folder') {
+              acts.push(`<button type="button" class="btn download-link" data-toggle="tooltip" data-toggle-i18n="getDownloadLink"><span class="fa fa-link"></span></button>`);
             }
-            if ($scope.currentBucketPerm.remove) {
-              acts.push(`<button type="button" class="btn remove text-danger" data-toggle="tooltip" data-toggle-i18n="delete"><span class="fa fa-trash"></span></button>`);
-            }
+            acts.push(`<button type="button" class="btn remove text-danger" data-toggle="tooltip" data-toggle-i18n="delete"><span class="fa fa-trash"></span></button>`);
             acts.push('</div>');
             return acts.join("");
           },
@@ -1512,9 +1436,9 @@ angular.module("web").controller("filesCtrl", [
               return false;
             },
             'click button.unfreeze': (evt, val, row, idx) => {
-              const region = $scope.currentInfo.region,
-                    bucket = $scope.currentInfo.bucket,
-                    key = row.Key;
+              const region = $scope.currentInfo.regionId,
+                    bucket = $scope.currentInfo.bucketName,
+                    key = row.name;
               isFrozenOrNot(region, bucket, key, {
                 'frozen': () => {
                   showRestore(row);

@@ -80,7 +80,7 @@ module.exports = {
 
   "storageClassesType": "存储类型",
   "storageClassesType.standard": "标准存储",
-  "storageClassesType.line": "低频存储",
+  "storageClassesType.infrequentaccess": "低频存储",
   "storageClassesType.glacier": "归档存储",
 
   "aclType.default": "继承Bucket",

@@ -7,8 +7,7 @@ const gulp = require("gulp"),
   archiver = require('archiver'),
   fs = require("fs"),
   path = require("path"),
-  pkg = require("./package"),
-  each = require("array-each");
+  pkg = require("./package");
 
 const NAME = 'Kodo Browser';
 const KICK_NAME = 'kodo-browser';
@@ -61,11 +60,11 @@ let appTasks = {
   }
 };
 
-each([ICONS, DIST, TARGET, RELEASE], (dir) => {
+[ICONS, DIST, TARGET, RELEASE].forEach((dir) => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-})
+});
 
 gulp.task("app.js", appTasks["app.js"]);
 gulp.task("app.css", appTasks["app.css"]);

@@ -13,7 +13,6 @@ let fs = require("fs"),
 class UploadJob extends Base {
   /**
    *
-   * @param s3options
    * @param config
    *    config.from {object|string}  {name, path} or /home/admin/a.jpg
    *    config.to   {object|string}  {bucket, key} or kodo://bucket/test/a.jpg
@@ -29,7 +28,7 @@ class UploadJob extends Base {
    *    complete
    *    progress ({loaded:100, total: 1200})
    */
-  constructor(s3options, config) {
+  constructor(config) {
     super();
 
     this._config = {};
@@ -44,18 +43,16 @@ class UploadJob extends Base {
       return;
     }
 
-    this.id = "uj-" + new Date().getTime() + "-" + ("" + Math.random()).substring(2);
-
-    this.s3options = s3options;
+    this.id = 'uj-' + new Date().getTime() + '-' + ('' + Math.random()).substring(2);
+    this.clientOptions = this._config.clientOptions;
+    this.kodoBrowserVersion = Global.app.version;
 
     this.from = util.parseLocalPath(this._config.from);
     this.to = util.parseKodoPath(this._config.to);
     this.region = this._config.region;
+    this.backendMode = this._config.backendMode;
 
-    this.prog = this._config.prog || {
-      total: 0,
-      loaded: 0
-    };
+    this.prog = this._config.prog || { total: 0, loaded: 0 };
 
     this.maxConcurrency = config.maxConcurrency || 10;
     this.resumeUpload = this._config.resumeUpload || false;
@@ -67,15 +64,17 @@ class UploadJob extends Base {
     this.overwrite = this._config.overwrite;
 
     this.message = this._config.message;
-    this.status = this._config.status || "waiting";
-    this.isStopped = this.status != "running";
+    this.status = this._config.status || 'waiting';
+    this.isStopped = this.status != 'running';
     this._listener = this.startUpload.bind(this);
     this.isDebug = this._config.isDebug;
   }
 }
 
 UploadJob.prototype.start = function (overwrite, prog) {
-  if (this.status == "running") return;
+  if (this.status === 'running') {
+    return;
+  }
 
   if (this.isDebug) {
     console.log(`Try uploading ${this.from.path} to kodo://${this.to.bucket}/${this.to.key}`);
@@ -94,8 +93,8 @@ UploadJob.prototype.start = function (overwrite, prog) {
   let job = {
     job: this.id,
     key: 'job-upload',
+    clientOptions: Object.assign(this.clientOptions, { backendMode: this.backendMode }),
     options: {
-      s3Options: this.s3options,
       resumeUpload: this.resumeUpload,
       maxConcurrency: this.maxConcurrency,
       multipartUploadThreshold: this.multipartUploadThreshold * 1024 * 1024,
@@ -103,10 +102,9 @@ UploadJob.prototype.start = function (overwrite, prog) {
       uploadSpeedLimit: this.uploadSpeedLimit
     },
     params: {
-      s3Params: {
-        Bucket: this.to.bucket,
-        Key: this.to.key
-      },
+      region: this.region,
+      bucket: this.to.bucket,
+      key: this.to.key,
       localFile: this.from.path,
       uploadedId: prog.uploadedId,
       uploadedParts: prog.uploadedParts,
@@ -115,6 +113,7 @@ UploadJob.prototype.start = function (overwrite, prog) {
       isDebug: this.isDebug
     }
   };
+
   if (this.isDebug) {
     console.log(`[JOB] sched starting => ${JSON.stringify(job)}`);
   }
@@ -152,13 +151,13 @@ UploadJob.prototype.stop = function () {
 };
 
 UploadJob.prototype.wait = function () {
-  if (this.status == "waiting") return;
+  if (this.status === "waiting") return;
 
   if (this.isDebug) {
-    console.log(`Pendding ${this.from.path}`);
+    console.log(`Pending ${this.from.path}`);
   }
 
-  this._lastStatusFailed = this.status == "failed";
+  this._lastStatusFailed = this.status === "failed";
   this.isStopped = true;
 
   this._changeStatus("waiting");
@@ -261,7 +260,7 @@ UploadJob.prototype.startSpeedCounter = function () {
     if (self.uploadSpeedLimit && self.speed > self.uploadSpeedLimit * 1024) {
       self.speed = self.uploadSpeedLimit * 1024;
     }
-    self.emit("speedchange", self.speed * 1.2);
+    self.emit('speedchange', self.speed * 1.2);
 
     self.predictLeftTime =
       self.speed <= 0 ?
@@ -272,9 +271,9 @@ UploadJob.prototype.startSpeedCounter = function () {
 
 UploadJob.prototype._changeStatus = function (status) {
   this.status = status;
-  this.emit("statuschange", this.status);
+  this.emit('statuschange', this.status);
 
-  if (status == "failed" || status == "stopped" || status == "finished" || status == "duplicated") {
+  if (status === 'failed' || status === 'stopped' || status === 'finished' || status === 'duplicated') {
     clearInterval(this.speedTid);
 
     this.endedAt = new Date().getTime();

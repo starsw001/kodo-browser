@@ -88,7 +88,6 @@ angular.module("web").factory("DownloadMgr", [
       options.multipartDownloadThreshold = settingsSvs.multipartDownloadThreshold.get();
       options.multipartDownloadSize = settingsSvs.multipartDownloadSize.get();
       options.downloadSpeedLimit = (settingsSvs.downloadSpeedLimitEnabled.get() == 1 && settingsSvs.downloadSpeedLimitKBperSec.get());
-      options.useElectronNode = (settingsSvs.useElectronNode.get() == 1);
       options.isDebug = (settingsSvs.isDebug.get() == 1);
 
       const store = new QiniuStore();

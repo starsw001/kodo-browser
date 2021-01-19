@@ -230,9 +230,7 @@ gulp.task("mac", () => {
     options.icon = `${ICONS}/icon.icns`;
 
     packager(options).then((paths) => {
-      plugins.run(`rm -rf ${paths[0]}/${NAME}.app/Contents/Resources/app/node/bin/node.exe ${paths[0]}/${NAME}.app/Contents/Resources/app/node/bin/node.bin`).exec(() => {
-        console.log("--done");
-      });
+      console.log("--done");
     }, (errs) => {
       console.error(errs);
     });
@@ -280,9 +278,7 @@ gulp.task("win64", () => {
     options.icon = `${ICONS}/icon.png`;
 
     packager(options).then((paths) => {
-      plugins.run(`rm -rf ${paths[0]}/resources/app/node/bin/node ${paths[0]}/resources/app/node/bin/node.bin`).exec(() => {
-        console.log("--done");
-      });
+      console.log("--done");
     }, (errs) => {
       console.error(errs);
     });
@@ -309,9 +305,7 @@ gulp.task("win32", () => {
     options.icon = `${ICONS}/icon.png`;
 
     packager(options).then((paths) => {
-      plugins.run(`rm -rf ${paths[0]}/resources/app/node/bin/node ${paths[0]}/resources/app/node/bin/node.bin`).exec(() => {
-        console.log("--done");
-      });
+      console.log("--done");
     }, (errs) => {
       console.error(errs);
     });
@@ -337,9 +331,7 @@ gulp.task("linux64", () => {
     options.arch = "x64";
 
     packager(options).then((paths) => {
-      plugins.run(`rm -rf ${paths[0]}/resources/app/node/bin/node ${paths[0]}/resources/app/node/bin/node.exe`).exec(() => {
-        console.log("--done");
-      });
+      console.log("--done");
     }, (errs) => {
       console.error(errs);
     });
@@ -365,9 +357,7 @@ gulp.task("linux32", () => {
     options.arch = "ia32";
 
     packager(options).then((paths) => {
-      plugins.run(`rm -rf ${paths[0]}/resources/app/node/bin/node ${paths[0]}/resources/app/node/bin/node.exe`).exec(() => {
-        console.log("--done");
-      });
+      console.log("--done");
     }, (errs) => {
       console.error(errs);
     });

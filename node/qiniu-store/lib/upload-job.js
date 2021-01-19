@@ -109,7 +109,6 @@ UploadJob.prototype.start = function (overwrite, prog) {
       uploadedId: prog.uploadedId,
       uploadedParts: prog.uploadedParts,
       overwriteDup: !!overwrite || this.overwrite,
-      useElectronNode: !!this.useElectronNode,
       isDebug: this.isDebug
     }
   };

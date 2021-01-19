@@ -85,7 +85,6 @@ angular.module("web").factory("UploadMgr", [
       options.multipartUploadSize = settingsSvs.multipartUploadSize.get();
       options.multipartUploadThreshold = settingsSvs.multipartUploadThreshold.get();
       options.uploadSpeedLimit = (settingsSvs.uploadSpeedLimitEnabled.get() == 1 && settingsSvs.uploadSpeedLimitKBperSec.get());
-      options.useElectronNode = (settingsSvs.useElectronNode.get() == 1);
       options.isDebug = (settingsSvs.isDebug.get() == 1);
 
       const store = new QiniuStore();

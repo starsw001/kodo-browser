@@ -213,8 +213,6 @@ module.exports = {
   "settings.system": "システム設定",
   "settings.isDebug": "デバッグログ",
   "settings.isDebug.msg": "デバッグログを開くかどうか",
-  "settings.useElectronNode": "Electron Node",
-  "settings.useElectronNode.msg": "Enable Electron Node",
   "settings.autoUpgrade": "自動更新",
   "settings.autoUpgrade.msg": "自動ダウンロードパッケージ",
   "settings.success": "正常に保存",

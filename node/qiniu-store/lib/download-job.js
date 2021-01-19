@@ -102,7 +102,6 @@ DownloadJob.prototype.start = function (params) {
       key: this.from.key,
       localFile: this.tmpfile,
       downloadedBytes: params.prog.synced,
-      useElectronNode: !!this.useElectronNode,
       isDebug: this.isDebug
     }
   };

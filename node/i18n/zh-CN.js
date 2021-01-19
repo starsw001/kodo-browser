@@ -213,8 +213,6 @@ module.exports = {
   "settings.system": "系统设置",
   "settings.isDebug": "调试日志",
   "settings.isDebug.msg": "是否开启调试日志",
-  "settings.useElectronNode": "启用 Electron Node",
-  "settings.useElectronNode.msg": "是否启用 Electron Node",
   "settings.autoUpgrade": "自动更新",
   "settings.autoUpgrade.msg": "自动下载更新包",
   "settings.success": "已经保存设置",

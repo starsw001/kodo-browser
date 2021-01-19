@@ -121,7 +121,7 @@ class Client {
         eventEmitter.progressResumable = self.resumeUpload && (!recoveredOption || uploadedPartSize === self.multipartUploadSize);
         eventEmitter.emit('fileStat', eventEmitter);
 
-        fsPromises.open(localFile).then((fileHandle) => {
+        fsPromises.open(localFile, 'r').then((fileHandle) => {
           if (isAborted) {
             return;
           }
@@ -209,10 +209,7 @@ class Client {
         self.uploader.abort();
       }
 
-      eventEmitter.emit('abort', {
-        uploadedParts: uploadedParts,
-        uploadedPartSize: uploadedPartSize
-      });
+      eventEmitter.emit('abort', {});
     }
 
     function smallestPartSizeFromFileSize(fileSize) {
@@ -337,9 +334,7 @@ class Client {
         self.downloader.abort();
       }
 
-      eventEmitter.emit('abort', {
-        downloadedBytes: downloadedBytes,
-      });
+      eventEmitter.emit('abort', {});
     }
   }
 }

@@ -213,8 +213,6 @@ module.exports = {
   "settings.system": "System Settings",
   "settings.isDebug": "Debug",
   "settings.isDebug.msg": "Enable debug log",
-  "settings.useElectronNode": "Electron Node",
-  "settings.useElectronNode.msg": "Enable Electron Node",
   "settings.autoUpgrade": "Auto update",
   "settings.autoUpgrade.msg": "Download update package automatically",
   "settings.success": "Saved successfully",
